@@ -7,6 +7,11 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
 from models import Feedback
 from random import random
+import sys
+sys.path.append("../ml_service")
+from blackbox import Blackbox
+sys.path.append("../cel_base")
+from script_create import ImageTable, engine, Session
 import vk_api
 import urllib
 import numpy
@@ -14,10 +19,13 @@ import cv2
 import requests
 import time
 import re
+import pickle
 
 
-engine = create_engine('sqlite:///database.db')
-Session = sessionmaker(bind=engine)
+eng = create_engine('sqlite:///database.db')
+Ses = sessionmaker(bind=eng)
+e = create_engine('sqlite:///../cel_base/celebrities.db')
+S = sessionmaker(bind=e)
 
 
 def write_msg(user_id, message):
@@ -26,7 +34,7 @@ def write_msg(user_id, message):
 
 def send_photo(user_id):
     a = vk.method("photos.getMessagesUploadServer")
-    b = requests.post(a['upload_url'], files={'photo': open('send_test.jpg', 'rb')}).json()
+    b = requests.post(a['upload_url'], files={'photo': open('photo_test.jpg', 'rb')}).json()
     c = vk.method('photos.saveMessagesPhoto', {'photo': b['photo'], 'server': b['server'], 'hash': b['hash']})[0]
     d = "photo{}_{}".format(c["owner_id"], c["id"])
     vk.method("messages.send", {"peer_id": user_id, "attachment": d, 'random_id': random()})
@@ -42,20 +50,20 @@ def upload_photo(msg_id):
 
 
 def update_feedback(review):
-    session = Session()
+    ses = Ses()
     if review == "Good":
-        session.query(Feedback).update({Feedback.positive: Feedback.positive + 1}, synchronize_session=False)
+        ses.query(Feedback).update({Feedback.positive: Feedback.positive + 1}, synchronize_session=False)
     if review == "Bad":
-        session.query(Feedback).update({Feedback.negative: Feedback.negative + 1}, synchronize_session=False)
-    session.commit()
-    session.close()
+        ses.query(Feedback).update({Feedback.negative: Feedback.negative + 1}, synchronize_session=False)
+    ses.commit()
+    ses.close()
 
 
 def get_statistics():
-    session = Session()
-    pos = session.query(Feedback.positive).filter(Feedback.id_ == 1).first()[0]
-    neg = session.query(Feedback.negative).filter(Feedback.id_ == 1).first()[0]
-    session.close()
+    ses = Ses()
+    pos = ses.query(Feedback.positive).filter(Feedback.id_ == 1).first()[0]
+    neg = ses.query(Feedback.negative).filter(Feedback.id_ == 1).first()[0]
+    ses.close()
     return pos, neg
 
 
@@ -97,6 +105,8 @@ keyboard = VkKeyboard(one_time=True)
 keyboard.add_button(u'Ты ошибся...', color=VkKeyboardColor.NEGATIVE)
 keyboard.add_button(u'Да это я! Похож!', color=VkKeyboardColor.POSITIVE)
 
+box = Blackbox(1)
+
 for event in longpoll.listen():
     if event.type == VkEventType.MESSAGE_NEW and event.to_me:
         start = time.time()
@@ -106,6 +116,13 @@ for event in longpoll.listen():
                 if attach_data["attach1_type"] == "photo":
                     write_msg(event.user_id, u"Фото принято, обрабатываю...")
                     upload_photo(event.message_id)
+                    indxs = box.send_picture("test.jpg")
+                    session = S()
+                    print(session.query(ImageTable.image).filter(ImageTable.key == indxs[0]).first())
+                    blob = session.query(ImageTable.image).filter(ImageTable.key == indxs[0]).first()[0]
+                    img = pickle.loads(blob)
+                    cv2.imwrite("photo_test.jpg", img)
+                    session.close()
                     send_photo(event.user_id)
                     vk.method('messages.send', {'user_id': event.user_id, 'message': "Оцени!",'keyboard': keyboard.get_keyboard(), 'random_id': random()})
                     msg = vk.get_api().messages.getById(message_ids=event.message_id)
