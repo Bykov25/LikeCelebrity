@@ -117,12 +117,15 @@ for event in longpoll.listen():
                     write_msg(event.user_id, u"Фото принято, обрабатываю...")
                     upload_photo(event.message_id)
                     indxs = box.send_picture("test.jpg")
-                    session = S()
-                    blob = session.query(ImageTable.image).filter(ImageTable.key == indxs[0]).first()[0]
-                    img = pickle.loads(blob)
-                    cv2.imwrite("photo_test.jpg", img)
-                    session.close()
-                    send_photo(event.user_id)
+                    for i in range(len(indxs)):
+                        session = S()
+                        blob = session.query(ImageTable.image).filter(ImageTable.key == indxs[i]).first()[0]
+                        name = session.query(ImageTable.name).filter(ImageTable.key == indxs[i]).first()[0]
+                        img = pickle.loads(blob)
+                        cv2.imwrite("photo_test.jpg", img)
+                        session.close()
+                        vk.method('messages.send', {'user_id': event.user_id, 'message': "Ты похож на " + name + "!", 'random_id': random()})
+                        send_photo(event.user_id)
                     vk.method('messages.send', {'user_id': event.user_id, 'message': "Оцени!",'keyboard': keyboard.get_keyboard(), 'random_id': random()})
                     msg = vk.get_api().messages.getById(message_ids=event.message_id)
                     photo_url = msg['items'][0]['attachments'][0]['photo']['sizes'][5]['url']
